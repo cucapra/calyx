@@ -1,5 +1,7 @@
 //! Inteprets a control in a component.
 
+use std::cmp::max;
+
 use super::interpret_group::{
     finish_group_interpretation, interp_cont, interpret_group,
 };
@@ -15,7 +17,7 @@ pub fn interpret_control(
 ) -> FutilResult<InterpreterState> {
     match ctrl {
         ir::Control::Seq(s) => eval_seq(s, continuous_assignments, env, comp),
-        ir::Control::Par(p) => eval_par(p, continuous_assignments, env),
+        ir::Control::Par(p) => eval_par(p, continuous_assignments, env, comp),
         ir::Control::If(i) => eval_if(i, continuous_assignments, env, comp),
         ir::Control::While(w) => {
             eval_while(w, continuous_assignments, env, comp)
@@ -41,17 +43,50 @@ fn eval_seq(
     Ok(env)
 }
 
+// fn state_merger(
+//     st1: InterpreterState,
+//     st2: InterpreterState,
+// ) -> InterpreterState {
+//     let mut out = environment::InterpreterState::init(&st1.context);
+//     out.clk = max(st1.clk, st2.clk);
+//     let pv = stk_env::Smoosher::merge(st1.pv_map, st2.pv_map);
+//     out.pv_map = pv;
+//     out
+// }
+
+// fn folder(env: InterpreterState, new: &InterpreterState) -> InterpreterState {
+//     let nw = new.borrow_mut();
+//     state_merger(env, new.fork())
+// }
+
 /// Interpret Par
-/// at the moment behaves like seq
+/// current progress for par, will be updated in the next PR considering new
+/// smoosher changes
 fn eval_par(
-    _p: &ir::Par,
-    _continuous_assignments: &[ir::Assignment],
-    mut _env: InterpreterState,
+    p: &ir::Par,
+    continuous_assignments: &[ir::Assignment],
+    mut env: InterpreterState,
+    comp: &ir::Component,
 ) -> FutilResult<InterpreterState> {
+    let mut sts: Vec<InterpreterState> = Vec::new();
+
+    //let mut new_env = env.fork();
+
+    for stmt in &p.stmts {
+        let new =
+            interpret_control(stmt, continuous_assignments, env.fork(), comp)?;
+        sts.push(new);
+    }
+
+    //env = sts.iter().fold(env, folder);
+    for st in sts {
+        //env = state_merger(env, st);
+    }
+
     // for stmt in &p.stmts {
     //     env = interpret_control(stmt, comp.clone(), env)?;
     // }
-    todo!()
+    Ok(env)
 }
 
 /// Interpret If

@@ -400,10 +400,15 @@ impl InterpreterState {
     }
 
     pub fn fork(&mut self) -> Self {
+        let other_pv_map = if self.pv_map.top().is_empty() {
+            self.pv_map.fork_from_tail()
+        } else {
+            self.pv_map.fork()
+        };
         Self {
             clk: self.clk,
             cell_prim_map: Rc::clone(&self.cell_prim_map),
-            pv_map: self.pv_map.fork(),
+            pv_map: other_pv_map,
             context: Rc::clone(&self.context),
         }
     }

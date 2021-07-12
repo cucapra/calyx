@@ -91,7 +91,7 @@ impl<T> List<T> {
         }
     }
 
-    /// Consumes [self], returning a tupule of ([self.head : Option<T>], [self.tail : List<T>]),
+    /// Consumes [self], returning a tuple of ([self.head : Option<T>], [self.tail : List<T>]),
     /// where [tail] is all elements in [self] that are not [head]. If [self] is empty,
     /// [split] will return ([None], [self])
     ///
@@ -363,6 +363,60 @@ impl<K: Eq + std::hash::Hash, V: Eq> Smoosher<K, V> {
         Smoosher {
             head: HashMap::new(),
             tail: new_tail,
+        }
+    }
+
+    /// ```text
+    /// Returns a new smoosher that is forked from the tail of the self. This is
+    /// needed when we want to have multiple forks from the same fork point,
+    /// since the usual fork() mutates self by adding a new scope onto it. If
+    /// we fork() once, and then for all other fork instances use fork_from_tail(),
+    /// we will have an arbitraty number of forks with a common fork point, so
+    /// after they can be merged with merge_many(). Requires that the head of
+    /// self is empty so that we can only form from tail when we are creating
+    /// multiple forks.
+    /// ```
+    /// # Panics
+    /// ```text
+    /// Panics if [self] has a non-empty head
+    ///```
+    /// # Examples
+    /// ## Pictorial Example
+    /// ```text
+    /// [A]
+    /// ```
+    /// let B = A.fork(); //generates B and A'
+    /// let C = A.fork_from_tail();
+    /// ```text
+    /// [B] [A'] [C]  <- All B, A' and C point to the common fork point A
+    ///  |   |  /
+    ///   \ / /
+    ///    |
+    ///   [A]
+    /// ```
+    /// ## Code Example
+    /// ```rust
+    /// use interp::stk_env::Smoosher;
+    /// let mut a = Smoosher::new();
+    /// a.set("hi!", 1);
+    /// a.set("hey", 4);
+    /// let mut b = a.fork();
+    /// let mut c = a.fork_from_tail();
+    /// a.set("hey", 2);
+    /// b.set("hey", 3);
+    /// c.set("privet", 5);
+    /// assert_eq!(*a.get(&"hi!").unwrap(), *b.get(&"hi!").unwrap());
+    /// assert_eq!(*b.get(&"hi!").unwrap(), *c.get(&"hi!").unwrap());
+    /// assert_eq!(*a.get(&"hey").unwrap(), 2);
+    /// assert_eq!(*c.get(&"hey").unwrap(), 4);
+    /// assert_eq!(*c.get(&"privet").unwrap(), 5);
+    /// assert_eq!(*b.get(&"hey").unwrap(), 3);
+    /// ```
+    pub fn fork_from_tail(&self) -> Self {
+        assert!(self.head.is_empty());
+        Smoosher {
+            head: HashMap::new(),
+            tail: self.tail.clone(),
         }
     }
 
@@ -643,6 +697,147 @@ impl<K: Eq + std::hash::Hash, V: Eq> Smoosher<K, V> {
         } else {
             panic!("tried to merge Smooshers with no common fork point")
         }
+    }
+
+    /// ```text
+    /// Consumes a smoosher and a list of other smooshers to be merged. The list
+    /// can be any length.
+    /// Merges all topmost scopes above the shared fork point for all smooshers,
+    /// finally smooshing the resulting top node onto the fork point. Returns
+    /// the resulting Smoosher.
+    /// ```
+    /// ## IMPORTANT INVARIANT
+    /// ```text
+    /// If any of the forked smooshers have bindings for the same keys there is
+    /// no way to predict which could be written into the final output Smoosher,
+    /// hence the user should try and avoid that if correctness of all values is
+    /// desired. MAYBE MAKE SO ONLY THE HEAD SMOOSHERS VALUES STAY
+    /// ```
+    /// # Panics
+    /// ```text
+    /// Panics if any pairing of self and other don't share the common fork point.
+    /// Also panics if either is empty, or if the sets to be merged are disjoint (to be reviewed)
+    /// ```
+    /// # Examples
+    /// ## Pictorial Example
+    /// ```text
+    /// Smoosher 1: (A, B, C, F, G), Smoosher 2: (D, E, F, G), Smoosher 3: (J, I, H, F, G)       
+    /// [A]       [J]
+    ///  |        |
+    /// [B]      [I]   [D]
+    ///  |        \    |
+    /// [C]      [H]  [E]
+    ///  |       |    |
+    ///   \     |    /
+    ///    \   |   /
+    ///      [F]
+    ///       |
+    ///      [G]
+    /// *merge(Smoosher_1, [Smoosher_2, Smoosher_3])
+    /// Returns:
+    ///      [ABCDEHIJ merged and smooshed onto F]
+    ///       |
+    ///      [G]
+    /// ```
+    /// ## Code Example
+    /// good:
+    /// ```
+    /// use interp::stk_env::Smoosher;
+    /// let mut a = Smoosher::new();
+    /// a.set("hello", 15);
+    /// a.set("hi!", 1);
+    /// a.new_scope();
+    /// a.set("bye", 0);
+    /// let mut b = a.fork();
+    /// let mut c = a.fork_from_tail();
+    /// a.set("hi!", 3);
+    /// b.set("bye", 2);
+    /// c.set("privet", 11);
+    /// let mut lst = Vec::new();
+    /// lst.push(b);
+    /// lst.push(c);
+    /// let d = Smoosher::merge_many(a, lst);
+    /// assert_eq!(*d.get(&"privet").unwrap(), 11);
+    /// assert_eq!(*d.get(&"hi!").unwrap(), 3);
+    /// assert_eq!(*d.get(&"bye").unwrap(), 2);
+    /// assert_eq!(*d.get(&"hello").unwrap(), 15);
+    /// ```
+    /// will panic:
+    /// ```should_panic
+    /// use interp::stk_env::Smoosher;
+    /// let mut a = Smoosher::new();
+    /// a.set("hello", 15);
+    /// a.set("hi!", 1);
+    /// a.new_scope();
+    /// a.set("bye", 0);
+    /// let mut b = a.fork();
+    /// a.set("hi!", 3);
+    /// let mut c = a.fork();
+    /// b.set("bye", 2);
+    /// c.set("privet", 11);
+    /// let mut lst = Vec::new();
+    /// lst.push(b);
+    /// lst.push(c);
+    /// let d = Smoosher::merge_many(a, lst); //a and b has a different fork point
+    //from a and c
+    /// ```
+    pub fn merge_many(self, other: Vec<Self>) -> Self {
+        //initialize all needed variables
+        let mut a = self;
+        //needed to check for common fork point for all smooshers
+        let mut dp_first = 0;
+        let mut smooshed = Vec::new();
+
+        //iterate over all the smooshers and check for common fork point for all
+        //of them as well as smoosh them all to one level above the common fork.
+        for sm in other {
+            if let Some((depth_a, depth_b)) =
+                Smoosher::shared_fork_point(&a, &sm)
+            {
+                if dp_first == 0 {
+                    dp_first = depth_a;
+                    smooshed.push(sm.smoosh(depth_b - 1));
+                } else {
+                    if dp_first != depth_a {
+                        panic!(
+                            "The common fork differs for one or more smooshers"
+                        )
+                    } else {
+                        smooshed.push(sm.smoosh(depth_b - 1));
+                    }
+                }
+            } else {
+                panic!("No common fork for a pair of smooshers")
+            }
+        }
+
+        a = a.smoosh(dp_first - 1);
+
+        let mut a_head = a.head;
+
+        //iterate over every smooshed smoosher and put all of their values in
+        //the head of the first smoosher.
+        for sm in smooshed {
+            for (k, v) in sm.head {
+                if a_head.insert(k, v).is_some() {
+                    panic!("arguments of merge are not disjoint");
+                }
+            }
+            std::mem::drop(sm.tail);
+        }
+
+        let (a_new_head, a_new_tail) = a.tail.split();
+        if let Some(a_new_head) = a_new_head {
+            a = Smoosher {
+                head: a_new_head,
+                tail: a_new_tail,
+            };
+        } else {
+            panic!("trying to merge, but [self] is only 1 scope deep (this is impossible)")
+        }
+        //push_scope this new merged node onto A'
+        a.push_scope(a_head);
+        a.smoosh_once()
     }
 
     /// ```text
