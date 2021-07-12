@@ -51,7 +51,7 @@ fn eval_par(
     // for stmt in &p.stmts {
     //     env = interpret_control(stmt, comp.clone(), env)?;
     // }
-    todo!()
+    todo!("par control operator")
 }
 
 /// Interpret If
@@ -117,7 +117,7 @@ fn eval_invoke(
     _continuous_assignments: &[ir::Assignment],
     _env: InterpreterState,
 ) -> FutilResult<InterpreterState> {
-    todo!()
+    todo!("invoke control operator")
 }
 
 /// Interpret Enable
