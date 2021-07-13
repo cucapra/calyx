@@ -19,24 +19,20 @@ impl Named for GuardCanonical {
     }
 }
 
-fn update_assigns(assigns: Vec<ir::Assignment>) -> Vec<ir::Assignment> {
-    let mut new_assign: Vec<ir::Assignment> = Vec::new();
+fn update_assigns(assigns: &mut [ir::Assignment]) {
     for assign in assigns {
-        let guard = &assign.guard;
-        if !matches!(**guard, Guard::True)
-            && assign.src.borrow().is_constant(1, 1)
-        {
-            for p in guard.all_ports() {
-                let mut changed_assign = assign.clone();
-                changed_assign.guard = Box::new(Guard::True);
-                changed_assign.src = p;
-                new_assign.push(changed_assign);
+        if let Guard::Port(p) = &(*assign.guard) {
+            // 1'd1 ? r1.done
+            if p.borrow().is_constant(1, 1) {
+                assign.guard = Guard::True.into()
             }
-        } else {
-            new_assign.push(assign);
+            // r1.done ? 1'd1
+            else if assign.src.borrow().is_constant(1, 1) {
+                assign.src = p.clone(); //rc clone
+                assign.guard = Guard::True.into();
+            }
         }
     }
-    new_assign
 }
 
 impl Visitor for GuardCanonical {
@@ -55,11 +51,9 @@ impl Visitor for GuardCanonical {
         //   -> a[done] = r1.done
         // ```
         for group in comp.groups.iter() {
-            let assigns = group.borrow_mut().assignments.drain(..).collect();
-            group.borrow_mut().assignments = update_assigns(assigns);
+            update_assigns(&mut group.borrow_mut().assignments[..]);
         }
-        let assigns_cont = comp.continuous_assignments.drain(..).collect();
-        comp.continuous_assignments = update_assigns(assigns_cont);
+        update_assigns(&mut comp.continuous_assignments[..]);
 
         Ok(Action::Stop)
     }

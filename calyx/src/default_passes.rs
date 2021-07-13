@@ -44,7 +44,7 @@ impl PassManager {
         register_pass!(pm, RegisterUnsharing);
         register_pass!(pm, GuardCanonical);
 
-        register_alias!(pm, "validate", [WellFormed, Papercut]);
+        register_alias!(pm, "validate", [WellFormed, Papercut, GuardCanonical]);
         register_alias!(
             pm,
             "pre-opt",
